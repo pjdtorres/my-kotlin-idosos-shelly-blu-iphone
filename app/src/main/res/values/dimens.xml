@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Largura igual para os botões Guardar / Aplicar das linhas do topo -->
+    <dimen name="largura_botao_linha">112dp</dimen>
+</resources>

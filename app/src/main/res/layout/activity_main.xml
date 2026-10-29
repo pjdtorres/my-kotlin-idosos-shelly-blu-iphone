@@ -1,0 +1,314 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/main"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true"
+    tools:context=".MainActivity">
+
+<androidx.constraintlayout.widget.ConstraintLayout
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:paddingBottom="24dp">
+
+    <LinearLayout
+        android:id="@+id/NomeLinha"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:layout_marginTop="24dp"
+        android:layout_marginEnd="16dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent">
+
+        <EditText
+            android:id="@+id/NomeLayout"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:autofillHints="name"
+            android:hint="Nome da pessoa (ex.: D. Maria)"
+            android:imeOptions="actionDone"
+            android:inputType="textPersonName|textCapWords"
+            android:maxLength="40"
+            android:singleLine="true" />
+
+        <Button
+            android:id="@+id/GuardarNomeLayout"
+            android:layout_width="@dimen/largura_botao_linha"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:text="Guardar" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/IntervaloLinha"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:layout_marginTop="0dp"
+        android:layout_marginEnd="16dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/NomeLinha">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Intervalo de leitura (ms):" />
+
+        <EditText
+            android:id="@+id/IntervaloLayout"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:layout_weight="1"
+            android:hint="100"
+            android:imeOptions="actionDone"
+            android:importantForAutofill="no"
+            android:inputType="number"
+            android:maxLength="4"
+            android:singleLine="true" />
+
+        <Button
+            android:id="@+id/AplicarIntervaloLayout"
+            android:layout_width="@dimen/largura_botao_linha"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:text="Aplicar" />
+    </LinearLayout>
+
+    <!-- Número para onde o botão "Ligar telemóvel" envia o SMS -->
+    <LinearLayout
+        android:id="@+id/TelefoneLinha"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:layout_marginTop="0dp"
+        android:layout_marginEnd="16dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/IntervaloLinha">
+
+        <EditText
+            android:id="@+id/TelefoneLayout"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:autofillHints="phone"
+            android:hint="Telemóvel p/ SMS (ex.: 912345678)"
+            android:imeOptions="actionDone"
+            android:inputType="phone"
+            android:maxLength="20"
+            android:singleLine="true" />
+
+        <Button
+            android:id="@+id/GuardarTelefoneLayout"
+            android:layout_width="@dimen/largura_botao_linha"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:text="Guardar" />
+    </LinearLayout>
+
+    <!-- Posição de repouso: igual ao botão "Definir referência" da página /app -->
+    <TextView
+        android:id="@+id/ReferenciaTextoLayout"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:layout_marginTop="16dp"
+        android:layout_marginEnd="16dp"
+        android:gravity="center"
+        android:text="Pouse o telemóvel na posição de repouso e carregue no botão"
+        android:textSize="12sp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/TelefoneLinha" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/ReferenciaLayout"
+        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:text="🎯  Definir referência"
+        android:textAllCaps="false"
+        android:textColor="#2E9E5B"
+        android:textSize="16sp"
+        app:cornerRadius="24dp"
+        app:strokeColor="#2E9E5B"
+        app:strokeWidth="1dp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/ReferenciaTextoLayout" />
+
+    <!-- GPS e morada: por cima do botão Ligar MQTT -->
+    <TextView
+        android:id="@+id/GpsLayout"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:layout_marginTop="16dp"
+        android:layout_marginEnd="16dp"
+        android:gravity="center"
+        android:text="GPS: à espera de posição..."
+        android:textColor="#1E88E5"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/ReferenciaLayout" />
+
+    <!-- "Ligar/Desligar MQTT" e "ALERTA!" lado a lado, centrados -->
+    <Button
+        android:id="@+id/BotonLayout"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:text="Ligar MQTT"
+        app:layout_constraintEnd_toStartOf="@+id/SmsLayout"
+        app:layout_constraintHorizontal_chainStyle="packed"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/GpsLayout" />
+
+    <!-- ALERTA!: envia SMS com nome, localização e morada para o número guardado -->
+    <Button
+        android:id="@+id/SmsLayout"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="12dp"
+        android:text="ALERTA!"
+        android:textColor="#FFFFFF"
+        app:backgroundTint="#EF6C00"
+        app:layout_constraintBaseline_toBaselineOf="@+id/BotonLayout"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toEndOf="@+id/BotonLayout" />
+
+    <!-- Bateria do telemóvel -->
+    <TextView
+        android:id="@+id/BateriaLayout"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="🔋 Bateria: -"
+        android:textSize="18sp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/BotonLayout" />
+
+    <!-- Botão Shelly BLU Button1 (Bluetooth): estado + Associar / Esquecer -->
+    <TextView
+        android:id="@+id/BotaoShellyLayout"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:layout_marginTop="12dp"
+        android:layout_marginEnd="16dp"
+        android:gravity="center"
+        android:text="🔘 Botão Shelly: -"
+        android:textColor="#1565C0"
+        android:textSize="15sp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/BateriaLayout" />
+
+    <LinearLayout
+        android:id="@+id/BotaoShellyLinha"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/BotaoShellyLayout">
+
+        <Button
+            android:id="@+id/AssociarBotaoLayout"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Associar botão"
+            android:textAllCaps="false" />
+
+        <Button
+            android:id="@+id/EsquecerBotaoLayout"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:text="Esquecer"
+            android:textAllCaps="false" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/XyzLayout"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:text="X: -   Y: -   Z: -"
+        android:textSize="22sp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/BotaoShellyLinha" />
+
+    <TextView
+        android:id="@+id/Texto2Layout"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="Inclinação: -"
+        android:textSize="24sp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/XyzLayout" />
+
+    <SeekBar
+        android:id="@+id/BarLayout"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:layout_marginTop="4dp"
+        android:layout_marginEnd="16dp"
+        android:max="180"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/Texto2Layout" />
+
+    <TextView
+        android:id="@+id/AcelLayout"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:text="Inclinação: -"
+        android:textSize="22sp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/BarLayout" />
+
+    <TextView
+        android:id="@+id/MqttLayout"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:layout_marginTop="24dp"
+        android:layout_marginEnd="16dp"
+        android:background="#EEEEEE"
+        android:fontFamily="monospace"
+        android:padding="8dp"
+        android:text="MQTT: -"
+        android:textColor="#000000"
+        android:textSize="12sp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/AcelLayout" />
+
+</androidx.constraintlayout.widget.ConstraintLayout>
+
+</ScrollView>

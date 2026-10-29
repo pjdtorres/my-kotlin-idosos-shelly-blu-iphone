@@ -1,0 +1,29 @@
+name: Verificar app iOS
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build-ios:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Mostrar versao do Xcode
+        run: xcodebuild -version
+      - name: Instalar XcodeGen
+        run: brew install xcodegen
+      - name: Gerar projeto iOS
+        working-directory: iosApp
+        run: xcodegen generate
+      - name: Compilar para simulador sem assinatura
+        working-directory: iosApp
+        run: >-
+          xcodebuild
+          -project IdososAvalonIOS.xcodeproj
+          -scheme IdososAvalonIOS
+          -configuration Debug
+          -sdk iphonesimulator
+          -destination 'generic/platform=iOS Simulator'
+          CODE_SIGNING_ALLOWED=NO
+          build

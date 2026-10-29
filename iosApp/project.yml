@@ -1,0 +1,28 @@
+name: IdososAvalonIOS
+options:
+  bundleIdPrefix: pt.idososavalon
+packages:
+  CocoaMQTT:
+    url: https://github.com/emqx/CocoaMQTT.git
+    from: 2.4.1
+targets:
+  IdososAvalonIOS:
+    type: application
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources: [Sources]
+    dependencies:
+      - package: CocoaMQTT
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: pt.idososavalon.iphone
+        SWIFT_VERSION: 5.0
+        TARGETED_DEVICE_FAMILY: 1
+    info:
+      path: Sources/Info.plist
+      properties:
+        CFBundleDisplayName: Idosos Avalon
+        NSLocationWhenInUseUsageDescription: A localização é enviada para o mapa enquanto a monitorização está ativa.
+        NSBluetoothAlwaysUsageDescription: O Bluetooth permite receber os avisos do botão Shelly.
+        NSMotionUsageDescription: O movimento é usado para detetar possíveis quedas enquanto a aplicação está aberta.
+        UIBackgroundModes: [bluetooth-central]
