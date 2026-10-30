@@ -32,6 +32,17 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
     private var lastPackets: [String: (Int, Date)] = [:]
     private let bthome = CBUUID(string: "FCD2")
 
+    // Igual à versão Android
+    private let inclinationAlert = 40.0          // > 40° durante 1 s -> ALERTA
+    private let resendGpsEvery = 10              // reenvia a posição a cada 10 s
+    private var aboveSince: Date?
+    private var belowSince: Date?
+    private var inAlert = false
+    private var lastFall: Date?
+    private var secondsSinceGps = 0
+    private var lastGpsSent = Date.distantPast
+    private var lastRollPitch: (Double, Double) = (0, 0)
+
     private var deviceID: String {
         let key = "iphoneDeviceID"
         if let saved = UserDefaults.standard.string(forKey: key) { return saved }
@@ -171,7 +182,7 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
         guard active, let position = locations.last else { return }
         lastLocation = position
         gpsStatus = String(format: "GPS %.5f, %.5f", position.coordinate.latitude, position.coordinate.longitude)
-        sendLocation(position)
+        if Date().timeIntervalSince(lastGpsSent) >= 2 { sendLocation(position) }
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
@@ -179,11 +190,52 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
     }
 
     private func sendLocation(_ position: CLLocation) {
+        guard connected else { return }
+        lastGpsSent = Date()
+        secondsSinceGps = 0
+        let battery = UIDevice.current.batteryLevel
         publishJSON("fastapi/map/positions", [
             "device_id": deviceID, "label": name,
             "lat": position.coordinate.latitude, "lon": position.coordinate.longitude,
-            "precisao": position.horizontalAccuracy, "fonte": "GPS", "ts": timestamp
+            "precisao": position.horizontalAccuracy.rounded(), "fonte": "GPS",
+            "bateria": battery < 0 ? (NSNull() as Any) : (Int(battery * 100) as Any),
+            "a_carregar": UIDevice.current.batteryState == .charging,
+            "ts": timestamp
         ])
+    }
+
+    /// Mensagem para o chat de alertas da página web (tópico que o servidor FastAPI escuta).
+    private func sendAlert(_ text: String) {
+        var content = text
+        if let c = lastLocation?.coordinate {
+            content += String(format: " https://maps.google.com/?q=%.6f,%.6f", c.latitude, c.longitude)
+        }
+        lastEvent = text
+        publishJSON("fastapi/chat/alerts", [
+            "room_id": "geral", "content": content, "sender": name, "device_id": deviceID
+        ], qos: .qos1)
+    }
+
+    /// Regra da versão Android: > 40° durante 1 s -> ALERTA; < 40° durante 1 s -> "Está tudo bem!".
+    private func checkInclination(_ inclination: Double) {
+        let now = Date()
+        if inclination > inclinationAlert {
+            belowSince = nil
+            if aboveSince == nil { aboveSince = now }
+            if !inAlert, let since = aboveSince, now.timeIntervalSince(since) >= 1 {
+                inAlert = true
+                let fell = lastFall.map { now.timeIntervalSince($0) <= 10 } ?? false
+                sendAlert(String(format: "ALERTA: %@ %@(inclinação %.0f°)",
+                                 name, fell ? "QUEDA DETETADA " : "", inclination))
+            }
+        } else {
+            aboveSince = nil
+            if belowSince == nil { belowSince = now }
+            if inAlert, let since = belowSince, now.timeIntervalSince(since) >= 1 {
+                inAlert = false
+                sendAlert(String(format: "ALERTA: %@ Está tudo bem! (inclinação %.0f°)", name, inclination))
+            }
+        }
     }
 
     private func startMotion() {
@@ -193,22 +245,30 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
         }
         firstSample = true
         fall = FallRule()
+        aboveSince = nil; belowSince = nil; inAlert = false; lastFall = nil
         motion.accelerometerUpdateInterval = 0.02
         motion.startAccelerometerUpdates(to: .main) { [weak self] sample, _ in
             guard let self = self, self.active, let sample = sample else { return }
-            let a = [sample.acceleration.x * 9.80665,
-                     sample.acceleration.y * 9.80665,
-                     sample.acceleration.z * 9.80665]
+            // O iOS dá a gravidade com o sinal contrário do Android: inverte-se para
+            // que, deitado de costas, z = +9,8 e a inclinação seja 0° (como no Android).
+            let a = [-sample.acceleration.x * 9.80665,
+                     -sample.acceleration.y * 9.80665,
+                     -sample.acceleration.z * 9.80665]
             if self.firstSample { self.gravity = a; self.firstSample = false }
             else { for i in 0..<3 { self.gravity[i] = 0.8 * self.gravity[i] + 0.2 * a[i] } }
             let x = a[0] - self.gravity[0], y = a[1] - self.gravity[1], z = a[2] - self.gravity[2]
             let g = sqrt(self.gravity.reduce(0) { $0 + $1 * $1 })
             let inclination = g > 0.1 ? acos(max(-1, min(1, self.gravity[2] / g))) * 180 / .pi : 0
             self.lastMotion = (x, y, z, inclination)
+            let gx = self.gravity[0], gy = self.gravity[1], gz = self.gravity[2]
+            self.lastRollPitch = (atan2(gy, gz) * 180 / .pi,
+                                  atan2(-gx, sqrt(gy * gy + gz * gz)) * 180 / .pi)
             self.motionStatus = String(format: "Inclinação %.0f°", inclination)
+            self.checkInclination(inclination)
             let total = sqrt(a.reduce(0) { $0 + $1 * $1 })
             if self.fall.update(total: total, at: Int64(sample.timestamp * 1000)) {
-                self.lastEvent = "Possível queda detetada"
+                self.lastFall = Date()
+                self.sendAlert("ALERTA: \(self.name) QUEDA DETETADA")
                 self.publishJSON("esp32-udemy/telemovel/queda", [
                     "nome": self.name, "device_id": self.deviceID,
                     "queda": true, "ts": self.timestamp
@@ -229,6 +289,16 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
             "a_carregar": UIDevice.current.batteryState == .charging,
             "ts": timestamp
         ])
+        // Mesmo tópico e formato que o Android usa para a inclinação no mapa e a página "Gráficos"
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        publishJSON("esp32/acelerometro", [
+            "lx": values.0, "ly": values.1, "lz": values.2,
+            "roll": lastRollPitch.0, "pitch": lastRollPitch.1,
+            "yaw": 0, "yaw_ok": 0, "sample_utc": iso.string(from: Date())
+        ])
+        secondsSinceGps += 1
+        if secondsSinceGps >= resendGpsEvery, let position = lastLocation { sendLocation(position) }
     }
 
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
