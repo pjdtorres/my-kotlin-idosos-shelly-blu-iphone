@@ -225,6 +225,14 @@ struct ContentView: View {
                     .foregroundStyle(.white.opacity(0.72))
                     .padding(.top, 28)
 
+                if monitor.active {
+                    Text(monitor.rotationZ.map { String(format: "Rotação eixo Z: %.0f°", $0) }
+                         ?? "Rotação eixo Z: a aguardar leitura")
+                        .font(.system(size: 20))
+                        .foregroundStyle(.white.opacity(0.8))
+                        .padding(.top, 14)
+                }
+
                 Text(String(format: "Inclinação: %.0f°", monitor.inclinationNow))
                     .font(.system(size: 25))
                     .foregroundStyle(.white.opacity(0.8))

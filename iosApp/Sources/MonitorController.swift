@@ -29,6 +29,7 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
     @Published private(set) var axisZ = 0.0
     @Published private(set) var inclinationNow = 0.0
     @Published private(set) var inclinationFromRef: Double? = nil
+    @Published private(set) var rotationZ: Double? = nil
     @Published private(set) var intervalMs = 100
 
     // ---- Sensores e ligações ----
@@ -44,6 +45,9 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
     private var name = "Telemóvel"
     private var lastLocation: CLLocation?
     private var lastMotion: (Double, Double, Double, Double)?
+    private var rawYaw: Double?
+    private var referenceYaw: Double?
+    private var rotationSpeed = 0.0
     private var gravity = [Double](repeating: 0, count: 3)
     private var firstSample = true
     private var fall = FallRule()
@@ -141,6 +145,8 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
         location.stopMonitoringSignificantLocationChanges()
         location.allowsBackgroundLocationUpdates = false
         motion.stopAccelerometerUpdates()
+        motion.stopDeviceMotionUpdates()
+        rawYaw = nil; referenceYaw = nil; rotationZ = nil; rotationSpeed = 0
         bluetooth?.stopScan()
         disconnectMQTT()
         gpsStatus = "GPS desligado"
@@ -186,6 +192,7 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
         refGravity = gravity
         let (roll, pitch) = absoluteRollPitch()
         refRoll = roll; refPitch = pitch
+        referenceYaw = rawYaw
         UserDefaults.standard.set(gravity + [roll, pitch], forKey: Self.refKey)
         aboveSince = nil; belowSince = nil
         lastEvent = "Referência definida às \(clock.string(from: Date()))"
@@ -403,6 +410,11 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
         return a
     }
 
+    private var yawValue: Double? {
+        guard let rawYaw = rawYaw else { return nil }
+        return referenceYaw.map { between180(rawYaw - $0) } ?? rawYaw
+    }
+
     /// Ângulo entre a gravidade agora e a gravidade na referência (nil sem referência).
     private func angleFromReference() -> Double? {
         guard let r = refGravity, !firstSample else { return nil }
@@ -420,11 +432,28 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
             return
         }
         firstSample = true
+        rawYaw = nil; referenceYaw = nil; rotationZ = nil; rotationSpeed = 0
         fall = FallRule()
         aboveSince = nil; belowSince = nil; inAlert = false; lastFall = nil
+        if motion.isDeviceMotionAvailable {
+            let available = CMMotionManager.availableAttitudeReferenceFrames()
+            let frame: CMAttitudeReferenceFrame = available.contains(.xMagneticNorthZVertical)
+                ? .xMagneticNorthZVertical : .xArbitraryZVertical
+            motion.deviceMotionUpdateInterval = 0.02
+            motion.startDeviceMotionUpdates(using: frame)
+        }
         motion.accelerometerUpdateInterval = 0.02
         motion.startAccelerometerUpdates(to: .main) { [weak self] sample, _ in
             guard let self = self, self.active, let sample = sample else { return }
+            if let orientation = self.motion.deviceMotion {
+                let heading = orientation.heading
+                let yaw = heading >= 0 ? heading :
+                    (orientation.attitude.yaw * 180 / .pi + 360).truncatingRemainder(dividingBy: 360)
+                self.rawYaw = yaw
+                if self.refGravity != nil && self.referenceYaw == nil { self.referenceYaw = yaw }
+                let rate = orientation.rotationRate
+                self.rotationSpeed = sqrt(rate.x * rate.x + rate.y * rate.y + rate.z * rate.z) * 180 / .pi
+            }
             // O iOS dá a gravidade com o sinal contrário do Android: inverte-se para
             // que, deitado de costas, z = +9,8 e a inclinação seja 0° (como no Android).
             let a = [-sample.acceleration.x * 9.80665,
@@ -456,6 +485,7 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
         if let values = lastMotion {
             axisX = values.0; axisY = values.1; axisZ = values.2
             inclinationNow = values.3
+            rotationZ = yawValue
             motionStatus = String(format: "Inclinação %.0f°", values.3)
         }
         inclinationFromRef = angleFromReference()
@@ -479,10 +509,11 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
         if refGravity != nil { roll = between180(roll - refRoll); pitch -= refPitch }
         let iso = ISO8601DateFormatter()
         iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let yaw = yawValue
         publishJSON("esp32/acelerometro", [
             "lx": values.0, "ly": values.1, "lz": values.2,
             "roll": roll, "pitch": pitch,
-            "yaw": 0, "yaw_ok": 0, "sample_utc": iso.string(from: Date())
+            "yaw": yaw ?? 0, "yaw_ok": yaw == nil ? 0 : 1, "sample_utc": iso.string(from: Date())
         ])
     }
 
@@ -493,7 +524,7 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
             publishJSON("esp32-udemy/telemovel/dados", [
                 "nome": name, "device_id": deviceID,
                 "x": values.0, "y": values.1, "z": values.2,
-                "inclinacao": values.3, "rotacao": 0,
+                "inclinacao": values.3, "rotacao": rotationSpeed,
                 "horizontal": values.3 < 15 || values.3 > 165,
                 "bateria": battery < 0 ? -1 : Int(battery * 100),
                 "a_carregar": UIDevice.current.batteryState == .charging,
