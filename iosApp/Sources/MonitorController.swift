@@ -21,7 +21,7 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
     @Published private(set) var address = ""
     @Published private(set) var motionStatus = "Movimento desligado"
     @Published private(set) var bluetoothStatus = "Bluetooth desligado"
-    @Published private(set) var shellyText = "Botão Shelly: sem eventos"
+    @Published private(set) var shellyText = "Shelly: sem eventos"
     @Published private(set) var lastEvent = "Sem eventos"
     @Published private(set) var batteryText = ""
     @Published private(set) var axisX = 0.0
@@ -570,13 +570,38 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
         guard paired.contains(id) else { return }
         let event = BTHomeReading.description(reading.button)
         lastEvent = "Shelly: \(event)"
-        shellyText = "Botão Shelly: \"\(event)\" às \(clock.string(from: now))" +
+        shellyText = "Shelly: \(clock.string(from: now)) · \(event)" +
             (reading.battery >= 0 ? " · 🔋 \(reading.battery)%" : "") + " · \(RSSI.intValue) dBm"
         publishJSON("esp32-udemy/telemovel/botao", [
             "nome": name, "device_id": deviceID, "botao": id,
             "evento": event, "bateria_botao": reading.battery,
             "rssi": RSSI.intValue, "ts": timestamp
         ], qos: .qos1)
+        shellyToWebPage(event: event, battery: reading.battery, rssi: RSSI.intValue)
+    }
+
+    /// Alarme da página web (mesmo tópico e formato do botão no T-SIM7000G) e chat de alertas.
+    ///  1 toque / longo / manter -> codigo 1: ALERTA (faixa vermelha e som na página)
+    ///  2 toques                 -> codigo 3: desliga o alarme + "Está tudo bem!"
+    ///  3 toques                 -> codigo 3: desliga o alarme
+    private func shellyToWebPage(event: String, battery: Int, rssi: Int) {
+        let code: Int
+        switch event {
+        case "carregar", "longo", "manter": code = 1
+        case "duplo", "triplo": code = 3
+        default: return
+        }
+        let clicks = event == "duplo" ? 2 : (event == "triplo" ? 3 : 1)
+        publishJSON("esp32/shelly", [
+            "codigo": code, "cliques": clicks,
+            "bateria": battery >= 0 ? (battery as Any) : (NSNull() as Any),
+            "rssi": rssi, "device_id": deviceID, "nome": name
+        ], qos: .qos1)
+        if code == 1 {
+            sendAlert("ALERTA: \(name) PEDIDO DE AJUDA (botão Shelly)")
+        } else if event == "duplo" {
+            sendAlert("ALERTA: \(name) Está tudo bem! (botão Shelly)")
+        }
     }
 }
 
