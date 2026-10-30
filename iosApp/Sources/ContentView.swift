@@ -13,6 +13,7 @@ struct ContentView: View {
     @State private var intervalo = ""
     @State private var aviso = ""
     @State private var mostrarSMS = false
+    @State private var textoSMS = ""
     @State private var confirmarEsquecer = false
 
     private enum Campo: Hashable { case nome, intervalo, contacto }
@@ -182,6 +183,7 @@ struct ContentView: View {
                         // 1) Pedido de ajuda na página web; 2) SMS, se houver número
                         monitor.sendHelpRequest()
                         if !contactoGuardado.isEmpty && MFMessageComposeViewController.canSendText() {
+                            textoSMS = monitor.helpMessage(name: nomeGuardado)
                             mostrarSMS = true
                         }
                     } label: {
@@ -315,8 +317,16 @@ struct ContentView: View {
             intervalo = "\(monitor.intervalMs)"
         }
         .sheet(isPresented: $mostrarSMS) {
-            MessageComposer(recipient: contactoGuardado,
-                            body: monitor.helpMessage(name: nomeGuardado))
+            MessageComposer(recipient: contactoGuardado, body: textoSMS)
+        }
+        // Queda: abre o SMS já preenchido, como o botão ALERTA
+        .onReceive(monitor.$fallSMS) { mensagem in
+            guard let mensagem = mensagem else { return }
+            monitor.clearFallSMS()
+            guard !mostrarSMS, !contactoGuardado.isEmpty,
+                  MFMessageComposeViewController.canSendText() else { return }
+            textoSMS = mensagem
+            mostrarSMS = true
         }
         .confirmationDialog("Esquecer botões Shelly?",
                             isPresented: $confirmarEsquecer) {

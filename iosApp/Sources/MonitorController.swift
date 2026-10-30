@@ -3,6 +3,7 @@ import CoreLocation
 import CoreBluetooth
 import CoreMotion
 import CocoaMQTT
+import UserNotifications
 
 final class MonitorController: NSObject, ObservableObject, CLLocationManagerDelegate, CBCentralManagerDelegate {
     static let shared = MonitorController()
@@ -22,6 +23,9 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
     @Published private(set) var motionStatus = "Movimento desligado"
     @Published private(set) var bluetoothStatus = "Bluetooth desligado"
     @Published private(set) var shellyText = "Shelly: sem eventos"
+    /// Texto do SMS de queda à espera de ser aberto no ecrã (como o botão ALERTA).
+    @Published private(set) var fallSMS: String? = nil
+    private var lastFallSMS = Date.distantPast
     @Published private(set) var referenceText = ""
     @Published private(set) var lastEvent = "Sem eventos"
     @Published private(set) var batteryText = ""
@@ -114,6 +118,8 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
         startedAt = Date()
         UserDefaults.standard.set(true, forKey: Self.activeKey)
         UIDevice.current.isBatteryMonitoringEnabled = true
+        // Notificação "Utente caiu" quando a app está em segundo plano
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
         location.delegate = self
         location.desiredAccuracy = kCLLocationAccuracyBest
         // Mantém a app a correr com o ecrã bloqueado: enquanto o GPS estiver ativo em
@@ -226,6 +232,32 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
         ], qos: .qos1)
         lastEvent = "ALERTA enviado às \(clock.string(from: Date()))"
     }
+
+    /// Queda (inclinação > 40° durante 1 s, como o SMS automático do Android): pede ao ecrã
+    /// para abrir o SMS já preenchido. O iPhone exige que alguém carregue em Enviar.
+    /// Com a app em segundo plano, mostra a notificação "Utente caiu".
+    private func requestFallSMS(inclination: Double, fell: Bool) {
+        guard Date().timeIntervalSince(lastFallSMS) > 60 else { return }   // no máx. 1 por minuto
+        lastFallSMS = Date()
+        var message = String(format: "%@: %@ (inclinação %.0f°)",
+                             fell ? "QUEDA DETETADA" : "ALERTA", name, inclination)
+        if !address.isEmpty { message += "\n\(address)" }
+        if let c = lastLocation?.coordinate {
+            message += "\nhttps://maps.google.com/?q=\(c.latitude),\(c.longitude)"
+        }
+        fallSMS = message
+        if UIApplication.shared.applicationState != .active {
+            let content = UNMutableNotificationContent()
+            content.title = "Utente caiu"
+            content.body = "Toque para enviar o SMS de alerta para o contacto."
+            content.sound = .default
+            UNUserNotificationCenter.current().add(
+                UNNotificationRequest(identifier: "queda", content: content, trigger: nil))
+        }
+    }
+
+    /// O ecrã já abriu o SMS de queda.
+    func clearFallSMS() { fallSMS = nil }
 
     func helpMessage(name: String) -> String {
         var message = "PEDIDO DE AJUDA: \(name)"
@@ -402,6 +434,7 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
                 let fell = lastFall.map { now.timeIntervalSince($0) <= 10 } ?? false
                 sendAlert(String(format: "ALERTA: %@ %@(inclinação %.0f°)",
                                  name, fell ? "QUEDA DETETADA " : "", inclination))
+                requestFallSMS(inclination: inclination, fell: fell)
             }
         } else {
             aboveSince = nil
