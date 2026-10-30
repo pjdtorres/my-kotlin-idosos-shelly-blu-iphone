@@ -125,11 +125,19 @@ struct ContentView: View {
                         .overlay {
                             Capsule().stroke(Color(red: 0.17, green: 0.62, blue: 0.35), lineWidth: 1)
                         }
+                        .contentShape(Capsule())   // todo o contorno reage ao toque
                 }
                 .buttonStyle(.plain)
                 .disabled(!monitor.active)
                 .opacity(monitor.active ? 1 : 0.5)
                 .padding(.top, 10)
+
+                if !monitor.referenceText.isEmpty {
+                    Text(monitor.referenceText)
+                        .font(.system(size: 13))
+                        .foregroundStyle(Color(red: 0.17, green: 0.62, blue: 0.35))
+                        .padding(.top, 4)
+                }
 
                 VStack(spacing: 1) {
                     Text(monitor.gpsStatus)

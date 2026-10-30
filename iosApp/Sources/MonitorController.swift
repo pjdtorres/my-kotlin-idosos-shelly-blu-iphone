@@ -22,6 +22,7 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
     @Published private(set) var motionStatus = "Movimento desligado"
     @Published private(set) var bluetoothStatus = "Bluetooth desligado"
     @Published private(set) var shellyText = "Shelly: sem eventos"
+    @Published private(set) var referenceText = ""
     @Published private(set) var lastEvent = "Sem eventos"
     @Published private(set) var batteryText = ""
     @Published private(set) var axisX = 0.0
@@ -188,7 +189,10 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
 
     /// "Definir referência": a posição atual passa a ser a posição de repouso.
     func setReference() {
-        guard !firstSample else { return }
+        guard !firstSample else {
+            referenceText = "Ainda sem leituras do acelerómetro: carregue em Iniciar"
+            return
+        }
         refGravity = gravity
         let (roll, pitch) = absoluteRollPitch()
         refRoll = roll; refPitch = pitch
@@ -196,6 +200,7 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
         UserDefaults.standard.set(gravity + [roll, pitch], forKey: Self.refKey)
         aboveSince = nil; belowSince = nil
         lastEvent = "Referência definida às \(clock.string(from: Date()))"
+        referenceText = "✔ Referência definida às \(clock.string(from: Date()))"
         sendGraph()   // a página recebe já a leitura com os zeros
     }
 
