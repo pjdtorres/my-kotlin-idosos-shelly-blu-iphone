@@ -215,6 +215,18 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
         bluetoothStatus = "Botões esquecidos"
     }
 
+    /// Botão ALERTA da app: o mesmo "Pedido de ajuda" que 1 toque no Shelly mostra na
+    /// página /app (o servidor trata-o no tópico esp32-udemy/telemovel/botao).
+    func sendHelpRequest() {
+        guard active else { return }
+        publishJSON("esp32-udemy/telemovel/botao", [
+            "nome": name, "device_id": deviceID, "botao": "app",
+            "evento": "carregar", "bateria_botao": NSNull(),
+            "rssi": 0, "ts": timestamp
+        ], qos: .qos1)
+        lastEvent = "ALERTA enviado às \(clock.string(from: Date()))"
+    }
+
     func helpMessage(name: String) -> String {
         var message = "PEDIDO DE AJUDA: \(name)"
         if !address.isEmpty { message += "\n\(address)" }

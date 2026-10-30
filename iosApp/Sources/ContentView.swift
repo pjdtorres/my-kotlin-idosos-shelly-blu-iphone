@@ -179,7 +179,11 @@ struct ContentView: View {
                     .disabled(!monitor.active)
 
                     Button {
-                        mostrarSMS = true
+                        // 1) Pedido de ajuda na página web; 2) SMS, se houver número
+                        monitor.sendHelpRequest()
+                        if !contactoGuardado.isEmpty && MFMessageComposeViewController.canSendText() {
+                            mostrarSMS = true
+                        }
                     } label: {
                         Text("ALERTA")
                             .font(.system(size: 16, weight: .semibold))
@@ -192,7 +196,7 @@ struct ContentView: View {
                                         in: RoundedRectangle(cornerRadius: 5))
                     }
                     .buttonStyle(.plain)
-                    .disabled(contactoGuardado.isEmpty || !MFMessageComposeViewController.canSendText())
+                    .disabled(!monitor.active)
                 }
                 .opacity(monitor.active ? 1 : 0.65)
                 .padding(.top, 27)
