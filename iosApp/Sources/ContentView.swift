@@ -1,142 +1,287 @@
 import SwiftUI
 import MessageUI
 
-/// Ecrã compacto, com a mesma ordem da versão Android, para caber num iPhone.
+/// Ecrã iPhone com a mesma ordem e identidade visual da monitorização Android.
 struct ContentView: View {
     @ObservedObject private var monitor = MonitorController.shared
+
     @AppStorage("nome") private var nomeGuardado = "Telemóvel"
     @AppStorage("contacto") private var contactoGuardado = ""
+
     @State private var nome = ""
     @State private var contacto = ""
     @State private var intervalo = ""
     @State private var aviso = ""
     @State private var mostrarSMS = false
-    @FocusState private var foco: Bool
+    @State private var confirmarEsquecer = false
 
-    private let roxo = Color(red: 0.75, green: 0.55, blue: 0.98)
+    private enum Campo: Hashable { case nome, intervalo, contacto }
+    @FocusState private var campoAtivo: Campo?
+
+    private let fundo = Color(red: 0.055, green: 0.055, blue: 0.055)
+    private let roxo = Color(red: 0.72, green: 0.51, blue: 0.96)
+    private let azul = Color(red: 0.16, green: 0.58, blue: 0.94)
+    private let verde = Color(red: 0.03, green: 0.46, blue: 0.12)
+    private let turquesa = Color(red: 0.00, green: 0.78, blue: 0.72)
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 8) {
-                // Título + estado do MQTT
-                HStack(spacing: 6) {
-                    Text("Monitorização").font(.headline)
-                    Text("· \(monitor.mqttStatus)").font(.subheadline).lineLimit(1)
-                    Spacer(minLength: 0)
-                }
+            VStack(spacing: 0) {
+                Text("Monitorização  ·  \(monitor.mqttStatus)")
+                    .font(.system(size: 21, weight: .medium))
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 22)
+                    .padding(.bottom, 18)
 
-                Button(monitor.active ? "Parar monitorização" : "Iniciar monitorização") {
-                    foco = false
-                    if monitor.active { monitor.stop() } else { monitor.start(name: nomeGuardado) }
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(monitor.active ? .gray : .green)
-                .controlSize(.small)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                // Nome, intervalo e número (cada um com o seu botão, como no Android)
-                linha("Guardar", acao: {
-                    nomeGuardado = nome.isEmpty ? "Telemóvel" : nome
-                    monitor.setName(nomeGuardado)
-                    aviso = "Nome guardado"
-                }) {
-                    TextField("Nome", text: $nome)
-                }
-
-                linha("Aplicar", acao: {
-                    if let ms = Int(intervalo), monitor.applyInterval(ms) {
-                        aviso = String(format: "Intervalo de leitura: %d ms (%.2f Hz)", ms, 1000.0 / Double(ms))
-                    } else {
-                        aviso = "Intervalo entre 10 e 1000 ms"
-                        intervalo = "\(monitor.intervalMs)"
+                if !monitor.active {
+                    Button {
+                        campoAtivo = nil
+                        monitor.start(name: nomeGuardado)
+                    } label: {
+                        Text("INICIAR MONITORIZAÇÃO")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(.black)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 42)
+                            .background(Color.green, in: RoundedRectangle(cornerRadius: 6))
                     }
-                }) {
-                    HStack(spacing: 4) {
-                        Text("Intervalo (ms):").font(.footnote).foregroundStyle(.secondary)
-                        TextField("100", text: $intervalo).keyboardType(.numberPad)
-                    }
+                    .buttonStyle(.plain)
+                    .padding(.bottom, 18)
                 }
 
-                linha("Guardar", acao: {
-                    contactoGuardado = contacto
-                    aviso = "Número guardado"
-                }) {
-                    TextField("Número para SMS", text: $contacto).keyboardType(.phonePad)
+                VStack(spacing: 12) {
+                    linha("GUARDAR") {
+                        nomeGuardado = nome.isEmpty ? "Telemóvel" : nome
+                        monitor.setName(nomeGuardado)
+                        aviso = "Nome guardado"
+                    } campo: {
+                        TextField("Nome da pessoa", text: $nome)
+                            .textContentType(.name)
+                            .textInputAutocapitalization(.words)
+                            .focused($campoAtivo, equals: .nome)
+                            .modifier(CampoSublinhado())
+                    }
+
+                    linha("APLICAR") {
+                        if let ms = Int(intervalo), monitor.applyInterval(ms) {
+                            aviso = "Intervalo de leitura: \(ms) ms"
+                        } else {
+                            aviso = "Intervalo entre 10 e 1000 ms"
+                            intervalo = "\(monitor.intervalMs)"
+                        }
+                    } campo: {
+                        HStack(spacing: 4) {
+                            ViewThatFits(in: .horizontal) {
+                                Text("Intervalo de leitura (ms):")
+                                Text("Intervalo (ms):")
+                            }
+                            .font(.system(size: 13))
+                            .foregroundStyle(.white.opacity(0.7))
+                            TextField("100", text: $intervalo)
+                                .keyboardType(.numberPad)
+                                .multilineTextAlignment(.trailing)
+                                .focused($campoAtivo, equals: .intervalo)
+                                .frame(width: 55)
+                        }
+                        .modifier(CampoSublinhado())
+                    }
+
+                    linha("GUARDAR") {
+                        contactoGuardado = contacto
+                        aviso = "Número guardado"
+                    } campo: {
+                        TextField("Telemóvel para SMS", text: $contacto)
+                            .keyboardType(.phonePad)
+                            .textContentType(.telephoneNumber)
+                            .focused($campoAtivo, equals: .contacto)
+                            .modifier(CampoSublinhado())
+                    }
                 }
 
                 if !aviso.isEmpty {
-                    Text(aviso).font(.caption).foregroundStyle(.secondary)
+                    Text(aviso)
+                        .font(.caption)
+                        .foregroundStyle(.yellow)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.top, 7)
                 }
 
-                // Referência
                 Text("Pouse o telemóvel na posição de repouso e carregue no botão")
-                    .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                Button("🎯 Definir referência") { monitor.setReference() }
-                    .buttonStyle(.bordered).tint(.green).controlSize(.small)
-                    .disabled(!monitor.active)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.white.opacity(0.65))
+                    .multilineTextAlignment(.center)
+                    .padding(.top, 24)
 
-                // GPS e morada
-                VStack(spacing: 2) {
-                    Text(monitor.gpsStatus).font(.subheadline.bold()).foregroundStyle(.blue)
+                Button {
+                    monitor.setReference()
+                } label: {
+                    Text("🎯  Definir referência")
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundStyle(Color(red: 0.17, green: 0.62, blue: 0.35))
+                        .padding(.horizontal, 20)
+                        .frame(height: 40)
+                        .overlay {
+                            Capsule().stroke(Color(red: 0.17, green: 0.62, blue: 0.35), lineWidth: 1)
+                        }
+                }
+                .buttonStyle(.plain)
+                .disabled(!monitor.active)
+                .opacity(monitor.active ? 1 : 0.5)
+                .padding(.top, 10)
+
+                VStack(spacing: 1) {
+                    Text(monitor.gpsStatus)
+                        .font(.system(size: 19, weight: .bold))
+                        .foregroundStyle(azul)
                     if !monitor.gpsDetail.isEmpty {
-                        Text(monitor.gpsDetail).font(.footnote).foregroundStyle(.blue)
+                        Text(monitor.gpsDetail)
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundStyle(azul)
                     }
                     if !monitor.address.isEmpty {
-                        Text(monitor.address).font(.footnote.bold()).foregroundStyle(.green)
+                        Text(monitor.address)
+                            .font(.system(size: 17, weight: .bold))
+                            .foregroundStyle(verde)
                     }
                 }
                 .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 27)
 
-                // MQTT e SMS
-                HStack(spacing: 8) {
-                    Button(monitor.mqttOn ? "Desligar MQTT" : "Ligar MQTT") { monitor.toggleMQTT() }
-                        .buttonStyle(.borderedProminent)
-                        .tint(monitor.mqttOn ? .red : .green)
-                        .disabled(!monitor.active)
-                    Button("📱 Ligar telemóvel") { mostrarSMS = true }
-                        .buttonStyle(.borderedProminent)
-                        .tint(.orange)
-                        .disabled(contactoGuardado.isEmpty || !MFMessageComposeViewController.canSendText())
+                VStack(spacing: 12) {
+                    Button {
+                        monitor.toggleMQTT()
+                    } label: {
+                        Text(monitor.mqttOn ? "DESLIGAR MQTT" : "LIGAR MQTT")
+                            .font(.system(size: 16, weight: .semibold))
+                            .tracking(1)
+                            .foregroundStyle(.white)
+                            .frame(width: 174, height: 42)
+                            .background(monitor.mqttOn ? Color(red: 0.84, green: 0.18, blue: 0.18) :
+                                        Color(red: 0.13, green: 0.55, blue: 0.22),
+                                        in: RoundedRectangle(cornerRadius: 5))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!monitor.active)
+
+                    Button {
+                        mostrarSMS = true
+                    } label: {
+                        Text("📱  LIGAR TELEMÓVEL")
+                            .font(.system(size: 16, weight: .semibold))
+                            .tracking(1)
+                            .foregroundStyle(.white)
+                            .frame(width: 228, height: 42)
+                            .background(Color(red: 0.94, green: 0.42, blue: 0.00),
+                                        in: RoundedRectangle(cornerRadius: 5))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(contactoGuardado.isEmpty || !MFMessageComposeViewController.canSendText())
                 }
-                .controlSize(.small)
+                .opacity(monitor.active ? 1 : 0.65)
+                .padding(.top, 27)
 
                 if !monitor.batteryText.isEmpty {
-                    Text("🔋 \(monitor.batteryText)").font(.footnote).foregroundStyle(.green)
+                    Text("🔋 \(monitor.batteryText)")
+                        .font(.system(size: 18))
+                        .foregroundStyle(verde)
+                        .padding(.top, 17)
                 }
 
-                // Botão Shelly
-                Text(monitor.shellyText).font(.footnote).foregroundStyle(.blue)
+                Text("🔘 \(monitor.shellyText)")
+                    .font(.system(size: 15))
+                    .foregroundStyle(azul)
                     .multilineTextAlignment(.center)
-                HStack(spacing: 12) {
-                    Button("Associar botão") { monitor.associateButton() }
-                        .buttonStyle(.borderedProminent).tint(roxo)
-                        .disabled(!monitor.active)
-                    Button("Esquecer") { monitor.forgetButtons() }
-                        .foregroundStyle(roxo)
-                }
-                .controlSize(.small)
-                Text(monitor.bluetoothStatus).font(.caption).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 17)
 
-                // Acelerómetro
-                Text(String(format: "X: %.1f   Y: %.1f   Z: %.1f", monitor.axisX, monitor.axisY, monitor.axisZ))
-                    .font(.title3.monospacedDigit())
+                HStack(spacing: 18) {
+                    Button {
+                        monitor.associateButton()
+                    } label: {
+                        Text("Associar botão")
+                            .font(.system(size: 17, weight: .medium))
+                            .foregroundStyle(.black)
+                            .padding(.horizontal, 18)
+                            .frame(height: 43)
+                            .background(roxo, in: RoundedRectangle(cornerRadius: 5))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!monitor.active)
+
+                    Button("Esquecer") {
+                        confirmarEsquecer = true
+                    }
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(roxo)
+                }
+                .padding(.top, 9)
+
+                Text(String(format: "X: %.1f   Y: %.1f   Z: %.1f",
+                            monitor.axisX, monitor.axisY, monitor.axisZ))
+                    .font(.system(size: 22).monospacedDigit())
+                    .foregroundStyle(.white.opacity(0.72))
+                    .padding(.top, 28)
+
                 Text(String(format: "Inclinação: %.0f°", monitor.inclinationNow))
-                    .font(.title3)
-                ProgressView(value: min(max(monitor.inclinationNow, 0), 180), total: 180)
-                    .tint(.teal)
-                if let ref = monitor.inclinationFromRef {
-                    Text(String(format: ref > 40 ? "Desde a referência: %.0f° (ALERTA)" : "Desde a referência: %.0f°", ref))
-                        .font(.subheadline.bold())
-                        .foregroundStyle(ref > 40 ? .red : .green)
+                    .font(.system(size: 25))
+                    .foregroundStyle(.white.opacity(0.8))
+                    .padding(.top, 16)
+
+                GeometryReader { geometry in
+                    let valor = min(max(monitor.inclinationNow, 0), 180)
+                    let posicao = geometry.size.width * valor / 180
+                    ZStack(alignment: .leading) {
+                        Capsule()
+                            .fill(Color.white.opacity(0.45))
+                            .frame(height: 3)
+                        Capsule()
+                            .fill(turquesa)
+                            .frame(width: posicao, height: 3)
+                        Circle()
+                            .fill(turquesa)
+                            .frame(width: 15, height: 15)
+                            .offset(x: max(0, min(posicao - 7.5, geometry.size.width - 15)))
+                    }
+                    .frame(height: 15)
+                }
+                .frame(height: 15)
+                .padding(.top, 15)
+
+                if let referencia = monitor.inclinationFromRef {
+                    Text(String(format: "Desde a referência: %.0f°", referencia))
+                        .font(.system(size: 20, weight: .medium))
+                        .foregroundStyle(referencia > 40 ? .red : verde)
+                        .padding(.top, 14)
                 }
 
-                Text(monitor.lastEvent).font(.footnote)
-                Text("O SMS do botão laranja tem de ser confirmado no ecrã de Mensagens. Os alertas automáticos (inclinação, queda) vão para o chat da página web.")
-                    .font(.caption2).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                if monitor.active {
+                    Button("Parar monitorização") {
+                        monitor.stop()
+                    }
+                    .font(.footnote)
+                    .foregroundStyle(.white.opacity(0.7))
+                    .padding(.top, 28)
+                }
+
+                Text(monitor.lastEvent)
+                    .font(.footnote)
+                    .foregroundStyle(.white.opacity(0.7))
+                    .padding(.top, 15)
+
+                Text("No iPhone, o SMS é confirmado no ecrã de Mensagens. Teste GPS, Shelly e alertas no aparelho antes de depender deles.")
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.55))
+                    .multilineTextAlignment(.center)
+                    .padding(.top, 12)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 35)
         }
+        .background(fundo.ignoresSafeArea())
+        .preferredColorScheme(.dark)
         .scrollDismissesKeyboard(.interactively)
         .onAppear {
             nome = nomeGuardado == "Telemóvel" ? "" : nomeGuardado
@@ -144,24 +289,55 @@ struct ContentView: View {
             intervalo = "\(monitor.intervalMs)"
         }
         .sheet(isPresented: $mostrarSMS) {
-            MessageComposer(recipient: contactoGuardado, body: monitor.helpMessage(name: nomeGuardado))
+            MessageComposer(recipient: contactoGuardado,
+                            body: monitor.helpMessage(name: nomeGuardado))
+        }
+        .confirmationDialog("Esquecer botões Shelly?",
+                            isPresented: $confirmarEsquecer) {
+            Button("Esquecer botões", role: .destructive) {
+                monitor.forgetButtons()
+            }
+            Button("Cancelar", role: .cancel) {}
+        } message: {
+            Text("Os botões deixam de enviar alertas até serem associados novamente.")
         }
     }
 
-    /// Campo de texto + botão roxo à direita (como as linhas do Android).
-    private func linha<Campo: View>(_ titulo: String, acao: @escaping () -> Void,
-                                    @ViewBuilder campo: () -> Campo) -> some View {
-        HStack(spacing: 8) {
+    private func linha<CampoView: View>(
+        _ titulo: String,
+        acao: @escaping () -> Void,
+        @ViewBuilder campo: () -> CampoView
+    ) -> some View {
+        HStack(spacing: 12) {
             campo()
-                .textFieldStyle(.roundedBorder)
-                .focused($foco)
-            Button(titulo) { foco = false; acao() }
-                .buttonStyle(.borderedProminent)
-                .tint(roxo)
-                .foregroundStyle(.black)
-                .controlSize(.small)
-                .frame(width: 90)
+                .frame(maxWidth: .infinity)
+            Button {
+                campoAtivo = nil
+                acao()
+            } label: {
+                Text(titulo)
+                    .font(.system(size: 16, weight: .semibold))
+                    .tracking(1)
+                    .foregroundStyle(.black)
+                    .frame(width: 122, height: 43)
+                    .background(roxo, in: RoundedRectangle(cornerRadius: 5))
+            }
+            .buttonStyle(.plain)
         }
+    }
+}
+
+private struct CampoSublinhado: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .font(.system(size: 18))
+            .foregroundStyle(.white)
+            .padding(.vertical, 8)
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(Color.white.opacity(0.65))
+                    .frame(height: 1)
+            }
     }
 }
 
