@@ -19,7 +19,7 @@ A pasta original `my-kotlin-idosos-shelly-blu` não foi alterada. Esta cópia co
 
 - O código iOS ainda não foi compilado nem executado: este computador é Windows e não tem Xcode.
 - O projeto iOS ainda não usa diretamente o framework Kotlin `IdososShared`; a regra de queda e o descodificador BTHome foram reproduzidos em Swift para preparar a primeira compilação. A integração direta do framework pode ser feita no Mac.
-- A análise de quedas com o acelerómetro funciona apenas enquanto o iOS permite executar a aplicação; não é monitorização contínua garantida com a aplicação suspensa.
+- A monitorização continua em segundo plano (ecrã bloqueado) através do modo de localização em segundo plano, até carregar em Parar; com a autorização "Permitir sempre", a app é retomada se o iOS a fechar. Gasta mais bateria e tem de ser validada num iPhone real.
 - O botão Shelly usa o identificador Bluetooth fornecido pelo iOS em vez do MAC; pode ser necessário associá-lo novamente.
 - O iPhone não permite envio automático de SMS por esta interface. O botão ALERTA abre a composição e a pessoa confirma o envio. Quedas e carregões do Shelly são publicados por MQTT enquanto a ligação está ativa.
 - A ligação MQTT usa o mesmo broker TCP sem TLS do Android; rever a segurança antes de utilização real.

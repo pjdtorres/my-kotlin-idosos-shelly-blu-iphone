@@ -2,7 +2,7 @@ import SwiftUI
 import MessageUI
 
 struct ContentView: View {
-    @StateObject private var monitor = MonitorController()
+    @ObservedObject private var monitor = MonitorController.shared
     @AppStorage("nome") private var nome = "Telemóvel"
     @AppStorage("contacto") private var contacto = ""
     @State private var mostrarSMS = false
@@ -25,7 +25,7 @@ struct ContentView: View {
                     Text(monitor.motionStatus)
                     Text(monitor.bluetoothStatus)
                     Text(monitor.lastEvent)
-                    Text("A deteção de quedas usa o acelerómetro enquanto a aplicação está ativa. Teste-a no iPhone antes de depender dos alertas.")
+                    Text("Depois de Iniciar, a monitorização continua com o ecrã bloqueado até carregar em Parar. Na localização, escolha \"Permitir sempre\". Teste as quedas no iPhone antes de depender dos alertas.")
                         .font(.footnote)
                 }
                 Section("Botão Shelly") {

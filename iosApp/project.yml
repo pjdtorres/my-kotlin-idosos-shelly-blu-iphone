@@ -23,6 +23,7 @@ targets:
       properties:
         CFBundleDisplayName: Idosos Avalon
         NSLocationWhenInUseUsageDescription: A localização é enviada para o mapa enquanto a monitorização está ativa.
+        NSLocationAlwaysAndWhenInUseUsageDescription: A localização continua a ser enviada para o mapa com o ecrã bloqueado, até carregar em Parar.
         NSBluetoothAlwaysUsageDescription: O Bluetooth permite receber os avisos do botão Shelly.
         NSMotionUsageDescription: O movimento é usado para detetar possíveis quedas enquanto a aplicação está aberta.
-        UIBackgroundModes: [bluetooth-central]
+        UIBackgroundModes: [bluetooth-central, location]

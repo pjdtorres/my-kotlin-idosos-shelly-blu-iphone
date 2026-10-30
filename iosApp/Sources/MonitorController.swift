@@ -5,6 +5,10 @@ import CoreMotion
 import CocoaMQTT
 
 final class MonitorController: NSObject, ObservableObject, CLLocationManagerDelegate, CBCentralManagerDelegate {
+    static let shared = MonitorController()
+    private static let activeKey = "monitorizacaoAtiva"
+    private static let nameKey = "nome"
+
     @Published private(set) var active = false
     @Published private(set) var mqttStatus = "MQTT desligado"
     @Published private(set) var gpsStatus = "GPS desligado"
@@ -36,14 +40,26 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
         return value
     }
 
+    /// Retoma a monitorização se estava ativa quando a app foi fechada pelo iOS.
+    func resumeIfNeeded() {
+        guard UserDefaults.standard.bool(forKey: Self.activeKey) else { return }
+        start(name: UserDefaults.standard.string(forKey: Self.nameKey) ?? "Telemóvel")
+    }
+
     func start(name: String) {
         guard !active else { return }
         self.name = name.isEmpty ? "Telemóvel" : name
         active = true
+        UserDefaults.standard.set(true, forKey: Self.activeKey)
         UIDevice.current.isBatteryMonitoringEnabled = true
         location.delegate = self
         location.desiredAccuracy = kCLLocationAccuracyBest
-        location.requestWhenInUseAuthorization()
+        // Mantém a app a correr com o ecrã bloqueado: enquanto o GPS estiver ativo em
+        // segundo plano, o acelerómetro, o MQTT e o temporizador continuam a funcionar.
+        location.allowsBackgroundLocationUpdates = true
+        location.pausesLocationUpdatesAutomatically = false
+        location.showsBackgroundLocationIndicator = true
+        location.requestAlwaysAuthorization()
         startLocationIfAllowed()
         bluetooth = CBCentralManager(delegate: self, queue: nil)
         startMotion()
@@ -56,9 +72,12 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
     func stop() {
         guard active else { return }
         active = false
+        UserDefaults.standard.set(false, forKey: Self.activeKey)
         timer?.invalidate()
         timer = nil
         location.stopUpdatingLocation()
+        location.stopMonitoringSignificantLocationChanges()
+        location.allowsBackgroundLocationUpdates = false
         motion.stopAccelerometerUpdates()
         bluetooth?.stopScan()
         publish("esp32-udemy/telemovel/estado", text: "offline", qos: .qos1, retained: true)
@@ -135,6 +154,11 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
         guard active else { return }
         if location.authorizationStatus == .authorizedAlways || location.authorizationStatus == .authorizedWhenInUse {
             location.startUpdatingLocation()
+            // Se o iOS fechar a app por falta de memória, uma mudança significativa de
+            // posição volta a abri-la em segundo plano (exige "Sempre" na localização).
+            if location.authorizationStatus == .authorizedAlways {
+                location.startMonitoringSignificantLocationChanges()
+            }
             gpsStatus = "GPS à espera de posição"
         } else {
             gpsStatus = "Autorize a localização"
