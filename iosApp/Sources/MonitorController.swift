@@ -8,19 +8,38 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
     static let shared = MonitorController()
     private static let activeKey = "monitorizacaoAtiva"
     private static let nameKey = "nome"
+    private static let intervalKey = "intervaloGraficoMs"
+    private static let mqttOffKey = "mqttDesligado"
+    private static let refKey = "referenciaGravidade"
 
+    // ---- Estado mostrado no ecrã ----
     @Published private(set) var active = false
+    @Published private(set) var mqttOn = false
     @Published private(set) var mqttStatus = "MQTT desligado"
     @Published private(set) var gpsStatus = "GPS desligado"
+    @Published private(set) var gpsDetail = ""
+    @Published private(set) var address = ""
     @Published private(set) var motionStatus = "Movimento desligado"
     @Published private(set) var bluetoothStatus = "Bluetooth desligado"
+    @Published private(set) var shellyText = "Botão Shelly: sem eventos"
     @Published private(set) var lastEvent = "Sem eventos"
+    @Published private(set) var batteryText = ""
+    @Published private(set) var axisX = 0.0
+    @Published private(set) var axisY = 0.0
+    @Published private(set) var axisZ = 0.0
+    @Published private(set) var inclinationNow = 0.0
+    @Published private(set) var inclinationFromRef: Double? = nil
+    @Published private(set) var intervalMs = 100
 
+    // ---- Sensores e ligações ----
     private let location = CLLocationManager()
     private let motion = CMMotionManager()
+    private let geocoder = CLGeocoder()
     private var bluetooth: CBCentralManager?
     private var mqtt: CocoaMQTT?
     private var timer: Timer?
+    private var graphTimer: Timer?
+    private var uiTimer: Timer?
     private var connected = false
     private var name = "Telemóvel"
     private var lastLocation: CLLocation?
@@ -32,8 +51,8 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
     private var lastPackets: [String: (Int, Date)] = [:]
     private let bthome = CBUUID(string: "FCD2")
 
-    // Igual à versão Android
-    private let inclinationAlert = 40.0          // > 40° durante 1 s -> ALERTA
+    // ---- Regras iguais à versão Android ----
+    private let inclinationAlert = 40.0          // > 40° (desde a referência) durante 1 s -> ALERTA
     private let resendGpsEvery = 10              // reenvia a posição a cada 10 s
     private var aboveSince: Date?
     private var belowSince: Date?
@@ -41,7 +60,31 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
     private var lastFall: Date?
     private var secondsSinceGps = 0
     private var lastGpsSent = Date.distantPast
-    private var lastRollPitch: (Double, Double) = (0, 0)
+    private var startedAt = Date()
+
+    // Referência ("Definir referência" ou ZERO da página): gravidade, roll e pitch nesse momento
+    private var refGravity: [Double]?
+    private var refRoll = 0.0
+    private var refPitch = 0.0
+
+    // Morada
+    private var lastGeocoded: CLLocation?
+    private var lastGeocodeTime = Date.distantPast
+
+    private let clock: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss"
+        return f
+    }()
+
+    override init() {
+        super.init()
+        let saved = UserDefaults.standard.integer(forKey: Self.intervalKey)
+        if (10...1000).contains(saved) { intervalMs = saved }
+        if let r = UserDefaults.standard.array(forKey: Self.refKey) as? [Double], r.count == 5 {
+            refGravity = Array(r[0..<3]); refRoll = r[3]; refPitch = r[4]
+        }
+    }
 
     private var deviceID: String {
         let key = "iphoneDeviceID"
@@ -50,6 +93,8 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
         UserDefaults.standard.set(value, forKey: key)
         return value
     }
+
+    // MARK: - Iniciar / parar
 
     /// Retoma a monitorização se estava ativa quando a app foi fechada pelo iOS.
     func resumeIfNeeded() {
@@ -61,12 +106,13 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
         guard !active else { return }
         self.name = name.isEmpty ? "Telemóvel" : name
         active = true
+        startedAt = Date()
         UserDefaults.standard.set(true, forKey: Self.activeKey)
         UIDevice.current.isBatteryMonitoringEnabled = true
         location.delegate = self
         location.desiredAccuracy = kCLLocationAccuracyBest
         // Mantém a app a correr com o ecrã bloqueado: enquanto o GPS estiver ativo em
-        // segundo plano, o acelerómetro, o MQTT e o temporizador continuam a funcionar.
+        // segundo plano, o acelerómetro, o MQTT e os temporizadores continuam a funcionar.
         location.allowsBackgroundLocationUpdates = true
         location.pausesLocationUpdatesAutomatically = false
         location.showsBackgroundLocationIndicator = true
@@ -74,31 +120,76 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
         startLocationIfAllowed()
         bluetooth = CBCentralManager(delegate: self, queue: nil)
         startMotion()
-        connectMQTT()
+        if !UserDefaults.standard.bool(forKey: Self.mqttOffKey) { connectMQTT() }
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            self?.sendMotion()
+            self?.everySecond()
         }
+        uiTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
+            self?.refreshScreen()
+        }
+        restartGraphTimer()
     }
 
     func stop() {
         guard active else { return }
         active = false
         UserDefaults.standard.set(false, forKey: Self.activeKey)
-        timer?.invalidate()
-        timer = nil
+        timer?.invalidate(); timer = nil
+        uiTimer?.invalidate(); uiTimer = nil
+        graphTimer?.invalidate(); graphTimer = nil
         location.stopUpdatingLocation()
         location.stopMonitoringSignificantLocationChanges()
         location.allowsBackgroundLocationUpdates = false
         motion.stopAccelerometerUpdates()
         bluetooth?.stopScan()
-        publish("esp32-udemy/telemovel/estado", text: "offline", qos: .qos1, retained: true)
-        mqtt?.disconnect()
-        mqtt = nil
-        connected = false
-        mqttStatus = "MQTT desligado"
+        disconnectMQTT()
         gpsStatus = "GPS desligado"
         motionStatus = "Movimento desligado"
         bluetoothStatus = "Bluetooth desligado"
+    }
+
+    // MARK: - Botões do ecrã
+
+    /// Novo nome: passa a ser o label no mapa (reenvia já a posição, como no Android).
+    func setName(_ newName: String) {
+        name = newName.isEmpty ? "Telemóvel" : newName
+        UserDefaults.standard.set(name, forKey: Self.nameKey)
+        if let position = lastLocation { sendLocation(position) }
+    }
+
+    /// Intervalo de envio para a página "Gráficos" (10 a 1000 ms). Devolve false se inválido.
+    @discardableResult
+    func applyInterval(_ ms: Int) -> Bool {
+        guard (10...1000).contains(ms) else { return false }
+        intervalMs = ms
+        UserDefaults.standard.set(ms, forKey: Self.intervalKey)
+        restartGraphTimer()
+        publishConfig()
+        return true
+    }
+
+    /// Botão "Ligar MQTT" / "Desligar MQTT".
+    func toggleMQTT() {
+        guard active else { return }
+        if mqttOn {
+            UserDefaults.standard.set(true, forKey: Self.mqttOffKey)
+            disconnectMQTT()
+        } else {
+            UserDefaults.standard.set(false, forKey: Self.mqttOffKey)
+            connectMQTT()
+        }
+    }
+
+    /// "Definir referência": a posição atual passa a ser a posição de repouso.
+    func setReference() {
+        guard !firstSample else { return }
+        refGravity = gravity
+        let (roll, pitch) = absoluteRollPitch()
+        refRoll = roll; refPitch = pitch
+        UserDefaults.standard.set(gravity + [roll, pitch], forKey: Self.refKey)
+        aboveSince = nil; belowSince = nil
+        lastEvent = "Referência definida às \(clock.string(from: Date()))"
+        sendGraph()   // a página recebe já a leitura com os zeros
     }
 
     func associateButton() {
@@ -114,37 +205,67 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
 
     func helpMessage(name: String) -> String {
         var message = "PEDIDO DE AJUDA: \(name)"
+        if !address.isEmpty { message += "\n\(address)" }
         if let coordinate = lastLocation?.coordinate {
             message += "\nhttps://maps.google.com/?q=\(coordinate.latitude),\(coordinate.longitude)"
         }
         return message
     }
 
+    // MARK: - MQTT
+
     private func connectMQTT() {
         let client = CocoaMQTT(clientID: deviceID, host: "89.167.29.191", port: 1883)
         client.keepAlive = 60
         client.autoReconnect = true
-        client.didConnectAck = { [weak self] _, ack in
+        client.willMessage = CocoaMQTTMessage(topic: "esp32-udemy/telemovel/estado",
+                                              string: "offline", qos: .qos1, retained: true)
+        client.didConnectAck = { [weak self] client, ack in
             DispatchQueue.main.async {
                 guard let self = self, self.active else { return }
                 self.connected = ack == .accept
                 self.mqttStatus = self.connected ? "MQTT ligado" : "MQTT recusado: \(ack)"
                 if self.connected {
+                    client.subscribe("esp32/cmd", qos: .qos1)
+                    client.subscribe("esp32/acelerometro/config/set", qos: .qos1)
                     self.publish("esp32-udemy/telemovel/estado", text: "online", qos: .qos1, retained: true)
+                    self.publishConfig()
                     if let position = self.lastLocation { self.sendLocation(position) }
+                }
+            }
+        }
+        client.didReceiveMessage = { [weak self] _, message, _ in
+            let text = (message.string ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let topic = message.topic
+            DispatchQueue.main.async {
+                guard let self = self, self.active else { return }
+                if topic == "esp32/cmd", text.uppercased() == "ZERO" {
+                    self.setReference()
+                } else if topic == "esp32/acelerometro/config/set", let ms = Int(text) {
+                    self.applyInterval(ms)
                 }
             }
         }
         client.didDisconnect = { [weak self] _, _ in
             DispatchQueue.main.async {
-                guard let self = self, self.active else { return }
+                guard let self = self, self.active, self.mqttOn else { return }
                 self.connected = false
                 self.mqttStatus = "MQTT desligado; a tentar novamente"
             }
         }
         mqtt = client
+        mqttOn = true
         mqttStatus = "MQTT a ligar"
         _ = client.connect()
+    }
+
+    private func disconnectMQTT() {
+        publish("esp32-udemy/telemovel/estado", text: "offline", qos: .qos1, retained: true)
+        mqttOn = false
+        mqtt?.disconnect()
+        mqtt = nil
+        connected = false
+        mqttStatus = "MQTT desligado"
     }
 
     private func publish(_ topic: String, text: String, qos: CocoaMQTTQoS = .qos0, retained: Bool = false) {
@@ -159,7 +280,13 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
         publish(topic, text: text, qos: qos)
     }
 
+    private func publishConfig() {
+        publish("esp32/acelerometro/config", text: "{\"period_ms\":\(intervalMs),\"sensor_on\":true}", qos: .qos1)
+    }
+
     private var timestamp: Int64 { Int64(Date().timeIntervalSince1970 * 1000) }
+
+    // MARK: - GPS e morada
 
     private func startLocationIfAllowed() {
         guard active else { return }
@@ -181,12 +308,33 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard active, let position = locations.last else { return }
         lastLocation = position
-        gpsStatus = String(format: "GPS %.5f, %.5f", position.coordinate.latitude, position.coordinate.longitude)
+        gpsStatus = String(format: "GPS: %.6f, %.6f", position.coordinate.latitude, position.coordinate.longitude)
+        gpsDetail = String(format: "±%.0f m (GPS) às %@", position.horizontalAccuracy,
+                           clock.string(from: position.timestamp))
         if Date().timeIntervalSince(lastGpsSent) >= 2 { sendLocation(position) }
+        lookUpAddress(position)
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         gpsStatus = "GPS: \(error.localizedDescription)"
+    }
+
+    private func lookUpAddress(_ position: CLLocation) {
+        if let previous = lastGeocoded, position.distance(from: previous) < 20 { return }
+        guard !geocoder.isGeocoding, Date().timeIntervalSince(lastGeocodeTime) > 10 else { return }
+        lastGeocodeTime = Date()
+        geocoder.reverseGeocodeLocation(position, preferredLocale: Locale(identifier: "pt_PT")) { [weak self] places, _ in
+            guard let self = self, let p = places?.first else { return }
+            var street = [p.thoroughfare, p.subThoroughfare].compactMap { $0 }.joined(separator: " ")
+            let town = [p.postalCode, p.locality].compactMap { $0 }.joined(separator: " ")
+            for part in [town, p.country ?? ""] where !part.isEmpty {
+                street += street.isEmpty ? part : ", " + part
+            }
+            DispatchQueue.main.async {
+                self.lastGeocoded = position
+                self.address = street
+            }
+        }
     }
 
     private func sendLocation(_ position: CLLocation) {
@@ -204,6 +352,8 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
         ])
     }
 
+    // MARK: - Alertas
+
     /// Mensagem para o chat de alertas da página web (tópico que o servidor FastAPI escuta).
     private func sendAlert(_ text: String) {
         var content = text
@@ -216,7 +366,8 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
         ], qos: .qos1)
     }
 
-    /// Regra da versão Android: > 40° durante 1 s -> ALERTA; < 40° durante 1 s -> "Está tudo bem!".
+    /// Regra da versão Android: > 40° desde a referência durante 1 s -> ALERTA;
+    /// < 40° durante 1 s -> "Está tudo bem!".
     private func checkInclination(_ inclination: Double) {
         let now = Date()
         if inclination > inclinationAlert {
@@ -236,6 +387,31 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
                 sendAlert(String(format: "ALERTA: %@ Está tudo bem! (inclinação %.0f°)", name, inclination))
             }
         }
+    }
+
+    // MARK: - Acelerómetro
+
+    private func absoluteRollPitch() -> (Double, Double) {
+        let gx = gravity[0], gy = gravity[1], gz = gravity[2]
+        return (atan2(gy, gz) * 180 / .pi, atan2(-gx, sqrt(gy * gy + gz * gz)) * 180 / .pi)
+    }
+
+    private func between180(_ v: Double) -> Double {
+        var a = v.truncatingRemainder(dividingBy: 360)
+        if a > 180 { a -= 360 }
+        if a < -180 { a += 360 }
+        return a
+    }
+
+    /// Ângulo entre a gravidade agora e a gravidade na referência (nil sem referência).
+    private func angleFromReference() -> Double? {
+        guard let r = refGravity, !firstSample else { return nil }
+        let g = gravity
+        let ng = sqrt(g[0] * g[0] + g[1] * g[1] + g[2] * g[2])
+        let nr = sqrt(r[0] * r[0] + r[1] * r[1] + r[2] * r[2])
+        guard ng > 0.1, nr > 0.1 else { return nil }
+        let c = max(-1, min(1, (g[0] * r[0] + g[1] * r[1] + g[2] * r[2]) / (ng * nr)))
+        return acos(c) * 180 / .pi
     }
 
     private func startMotion() {
@@ -260,11 +436,9 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
             let g = sqrt(self.gravity.reduce(0) { $0 + $1 * $1 })
             let inclination = g > 0.1 ? acos(max(-1, min(1, self.gravity[2] / g))) * 180 / .pi : 0
             self.lastMotion = (x, y, z, inclination)
-            let gx = self.gravity[0], gy = self.gravity[1], gz = self.gravity[2]
-            self.lastRollPitch = (atan2(gy, gz) * 180 / .pi,
-                                  atan2(-gx, sqrt(gy * gy + gz * gz)) * 180 / .pi)
-            self.motionStatus = String(format: "Inclinação %.0f°", inclination)
-            self.checkInclination(inclination)
+            // Sem referência: define-a sozinha ao fim de 3 s (como no Android)
+            if self.refGravity == nil, Date().timeIntervalSince(self.startedAt) >= 3 { self.setReference() }
+            if let fromRef = self.angleFromReference() { self.checkInclination(fromRef) }
             let total = sqrt(a.reduce(0) { $0 + $1 * $1 })
             if self.fall.update(total: total, at: Int64(sample.timestamp * 1000)) {
                 self.lastFall = Date()
@@ -277,29 +451,60 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
         }
     }
 
-    private func sendMotion() {
-        guard active, let values = lastMotion else { return }
+    /// Atualiza os números do ecrã 4 vezes por segundo (não a cada leitura, para poupar bateria).
+    private func refreshScreen() {
+        if let values = lastMotion {
+            axisX = values.0; axisY = values.1; axisZ = values.2
+            inclinationNow = values.3
+            motionStatus = String(format: "Inclinação %.0f°", values.3)
+        }
+        inclinationFromRef = angleFromReference()
         let battery = UIDevice.current.batteryLevel
-        publishJSON("esp32-udemy/telemovel/dados", [
-            "nome": name, "device_id": deviceID,
-            "x": values.0, "y": values.1, "z": values.2,
-            "inclinacao": values.3, "rotacao": 0,
-            "horizontal": values.3 < 15 || values.3 > 165,
-            "bateria": battery < 0 ? -1 : Int(battery * 100),
-            "a_carregar": UIDevice.current.batteryState == .charging,
-            "ts": timestamp
-        ])
-        // Mesmo tópico e formato que o Android usa para a inclinação no mapa e a página "Gráficos"
+        batteryText = battery < 0 ? "" : "Bateria: \(Int(battery * 100))%" +
+            (UIDevice.current.batteryState == .charging ? " (a carregar)" : "")
+    }
+
+    private func restartGraphTimer() {
+        graphTimer?.invalidate()
+        guard active else { return }
+        graphTimer = Timer.scheduledTimer(withTimeInterval: Double(intervalMs) / 1000, repeats: true) { [weak self] _ in
+            self?.sendGraph()
+        }
+    }
+
+    /// Mesmo tópico e formato que o Android usa para a inclinação no mapa e a página "Gráficos".
+    private func sendGraph() {
+        guard active, let values = lastMotion else { return }
+        var (roll, pitch) = absoluteRollPitch()
+        if refGravity != nil { roll = between180(roll - refRoll); pitch -= refPitch }
         let iso = ISO8601DateFormatter()
         iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         publishJSON("esp32/acelerometro", [
             "lx": values.0, "ly": values.1, "lz": values.2,
-            "roll": lastRollPitch.0, "pitch": lastRollPitch.1,
+            "roll": roll, "pitch": pitch,
             "yaw": 0, "yaw_ok": 0, "sample_utc": iso.string(from: Date())
         ])
+    }
+
+    private func everySecond() {
+        guard active else { return }
+        if let values = lastMotion {
+            let battery = UIDevice.current.batteryLevel
+            publishJSON("esp32-udemy/telemovel/dados", [
+                "nome": name, "device_id": deviceID,
+                "x": values.0, "y": values.1, "z": values.2,
+                "inclinacao": values.3, "rotacao": 0,
+                "horizontal": values.3 < 15 || values.3 > 165,
+                "bateria": battery < 0 ? -1 : Int(battery * 100),
+                "a_carregar": UIDevice.current.batteryState == .charging,
+                "ts": timestamp
+            ])
+        }
         secondsSinceGps += 1
         if secondsSinceGps >= resendGpsEvery, let position = lastLocation { sendLocation(position) }
     }
+
+    // MARK: - Botão Shelly (Bluetooth)
 
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
         guard active else { return }
@@ -334,6 +539,8 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
         guard paired.contains(id) else { return }
         let event = BTHomeReading.description(reading.button)
         lastEvent = "Shelly: \(event)"
+        shellyText = "Botão Shelly: \"\(event)\" às \(clock.string(from: now))" +
+            (reading.battery >= 0 ? " · 🔋 \(reading.battery)%" : "") + " · \(RSSI.intValue) dBm"
         publishJSON("esp32-udemy/telemovel/botao", [
             "nome": name, "device_id": deviceID, "botao": id,
             "evento": event, "bateria_botao": reading.battery,
