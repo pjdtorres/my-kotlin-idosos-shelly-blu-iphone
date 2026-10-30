@@ -598,10 +598,18 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
             bluetoothStatus = "Botão associado"
             return
         }
+        // Sem nenhum botão associado: o primeiro Shelly carregado fica associado sozinho
+        // (o iPhone não dá o MAC do botão, por isso não se pode fixar no código).
+        // Fica guardado: não é preciso voltar a associar depois de fechar a app.
+        if paired.isEmpty {
+            paired.insert(id)
+            UserDefaults.standard.set(Array(paired), forKey: "shellyIDs")
+            bluetoothStatus = "Botão associado automaticamente"
+        }
         guard paired.contains(id) else { return }
         let event = BTHomeReading.description(reading.button)
         lastEvent = "Shelly: \(event)"
-        shellyText = "Shelly: \(clock.string(from: now)) · \(event)" +
+        shellyText = "Shelly: \(clock.string(from: now))" + (event == "carregar" ? "" : " · \(event)") +
             (reading.battery >= 0 ? " · 🔋 \(reading.battery)%" : "") + " · \(RSSI.intValue) dBm"
         publishJSON("esp32-udemy/telemovel/botao", [
             "nome": name, "device_id": deviceID, "botao": id,
