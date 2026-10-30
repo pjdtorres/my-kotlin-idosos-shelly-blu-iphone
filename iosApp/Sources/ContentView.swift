@@ -158,7 +158,8 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.top, 27)
 
-                VStack(spacing: 12) {
+                // MQTT e ALERTA lado a lado
+                HStack(spacing: 10) {
                     Button {
                         monitor.toggleMQTT()
                     } label: {
@@ -166,7 +167,10 @@ struct ContentView: View {
                             .font(.system(size: 16, weight: .semibold))
                             .tracking(1)
                             .foregroundStyle(.white)
-                            .frame(width: 174, height: 42)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 42)
                             .background(monitor.mqttOn ? Color(red: 0.84, green: 0.18, blue: 0.18) :
                                         Color(red: 0.13, green: 0.55, blue: 0.22),
                                         in: RoundedRectangle(cornerRadius: 5))
@@ -177,11 +181,13 @@ struct ContentView: View {
                     Button {
                         mostrarSMS = true
                     } label: {
-                        Text("📱  LIGAR TELEMÓVEL")
+                        Text("ALERTA")
                             .font(.system(size: 16, weight: .semibold))
                             .tracking(1)
                             .foregroundStyle(.white)
-                            .frame(width: 228, height: 42)
+                            .lineLimit(1)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 42)
                             .background(Color(red: 0.94, green: 0.42, blue: 0.00),
                                         in: RoundedRectangle(cornerRadius: 5))
                     }

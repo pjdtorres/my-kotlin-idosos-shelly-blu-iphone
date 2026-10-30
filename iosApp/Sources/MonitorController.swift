@@ -508,10 +508,36 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
     }
 
     /// Mesmo tópico e formato que o Android usa para a inclinação no mapa e a página "Gráficos".
+    /// Roll e pitch da gravidade atual num referencial em que a gravidade da referência
+    /// aponta para +z. Assim a página calcula acos(cos(roll)·cos(pitch)) = ângulo desde a
+    /// referência, sem saltos. (Subtrair ângulos de Euler dava saltos de 0° a 90°/180°
+    /// com o telemóvel na vertical.)
+    private func relativeRollPitch() -> (Double, Double) {
+        guard let r = refGravity else { return absoluteRollPitch() }
+        func unit(_ v: [Double]) -> [Double] {
+            let n = sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2])
+            return n > 1e-6 ? v.map { $0 / n } : [0, 0, 1]
+        }
+        let a = unit(r), g = unit(gravity)
+        // Rotação (Rodrigues) que leva a referência "a" para (0, 0, 1): eixo a × z, ângulo acos(a·z)
+        let kx = a[1], ky = -a[0]
+        let s = sqrt(kx * kx + ky * ky), c = a[2]
+        var v = g
+        if s > 1e-6 {
+            let u = [kx / s, ky / s, 0.0]
+            let uxg = [u[1] * g[2] - u[2] * g[1], u[2] * g[0] - u[0] * g[2], u[0] * g[1] - u[1] * g[0]]
+            let ug = u[0] * g[0] + u[1] * g[1] + u[2] * g[2]
+            v = (0..<3).map { g[$0] * c + uxg[$0] * s + u[$0] * ug * (1 - c) }
+        } else if c < 0 {
+            v = [g[0], -g[1], -g[2]]   // referência de pernas para o ar: roda 180° em torno de x
+        }
+        return (atan2(v[1], v[2]) * 180 / .pi,
+                atan2(-v[0], sqrt(v[1] * v[1] + v[2] * v[2])) * 180 / .pi)
+    }
+
     private func sendGraph() {
         guard active, let values = lastMotion else { return }
-        var (roll, pitch) = absoluteRollPitch()
-        if refGravity != nil { roll = between180(roll - refRoll); pitch -= refPitch }
+        let (roll, pitch) = relativeRollPitch()
         let iso = ISO8601DateFormatter()
         iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let yaw = yawValue
@@ -582,31 +608,6 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
             "evento": event, "bateria_botao": reading.battery,
             "rssi": RSSI.intValue, "ts": timestamp
         ], qos: .qos1)
-        shellyToWebPage(event: event, battery: reading.battery, rssi: RSSI.intValue)
-    }
-
-    /// Alarme da página web (mesmo tópico e formato do botão no T-SIM7000G) e chat de alertas.
-    ///  1 toque / longo / manter -> codigo 1: ALERTA (faixa vermelha e som na página)
-    ///  2 toques                 -> codigo 3: desliga o alarme + "Está tudo bem!"
-    ///  3 toques                 -> codigo 3: desliga o alarme
-    private func shellyToWebPage(event: String, battery: Int, rssi: Int) {
-        let code: Int
-        switch event {
-        case "carregar", "longo", "manter": code = 1
-        case "duplo", "triplo": code = 3
-        default: return
-        }
-        let clicks = event == "duplo" ? 2 : (event == "triplo" ? 3 : 1)
-        publishJSON("esp32/shelly", [
-            "codigo": code, "cliques": clicks,
-            "bateria": battery >= 0 ? (battery as Any) : (NSNull() as Any),
-            "rssi": rssi, "device_id": deviceID, "nome": name
-        ], qos: .qos1)
-        if code == 1 {
-            sendAlert("ALERTA: \(name) PEDIDO DE AJUDA (botão Shelly)")
-        } else if event == "duplo" {
-            sendAlert("ALERTA: \(name) Está tudo bem! (botão Shelly)")
-        }
     }
 }
 
