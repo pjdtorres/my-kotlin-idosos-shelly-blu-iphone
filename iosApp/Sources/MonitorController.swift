@@ -229,7 +229,7 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
             "nome": name, "device_id": deviceID, "botao": "app",
             "evento": "carregar", "bateria_botao": NSNull(),
             "rssi": 0, "ts": timestamp
-        ], qos: .qos1)
+        ], qos: .qos1, alert: true)
         lastEvent = "ALERTA enviado às \(clock.string(from: Date()))"
     }
 
@@ -329,7 +329,26 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
         mqtt?.publish(topic, withString: text, qos: qos, retained: retained)
     }
 
-    private func publishJSON(_ topic: String, _ value: [String: Any], qos: CocoaMQTTQoS = .qos0) {
+    /// Dados para o servidor enviar o SMS sem intervenção: o contacto do campo
+    /// "Telemóvel para SMS" (guardado pelo ecrã em UserDefaults "contacto"),
+    /// a última posição e a morada. Vão nos eventos de queda e de pedido de ajuda.
+    private func alertExtras() -> [String: Any] {
+        var extra: [String: Any] = [:]
+        let contacto = (UserDefaults.standard.string(forKey: "contacto") ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        extra["contacto"] = contacto.isEmpty ? NSNull() : contacto
+        if let c = lastLocation?.coordinate {
+            extra["lat"] = c.latitude
+            extra["lon"] = c.longitude
+        }
+        if !address.isEmpty { extra["morada"] = address }
+        return extra
+    }
+
+    /// alert: true junta contacto, posição e morada (alertExtras) ao JSON.
+    private func publishJSON(_ topic: String, _ value: [String: Any], qos: CocoaMQTTQoS = .qos0,
+                             alert: Bool = false) {
+        let value = alert ? value.merging(alertExtras(), uniquingKeysWith: { atual, _ in atual }) : value
         guard JSONSerialization.isValidJSONObject(value),
               let data = try? JSONSerialization.data(withJSONObject: value),
               let text = String(data: data, encoding: .utf8) else { return }
@@ -525,7 +544,7 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
                 self.publishJSON("esp32-udemy/telemovel/queda", [
                     "nome": self.name, "device_id": self.deviceID,
                     "queda": true, "ts": self.timestamp
-                ], qos: .qos1)
+                ], qos: .qos1, alert: true)
             }
         }
     }
@@ -660,7 +679,7 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
             "nome": name, "device_id": deviceID, "botao": id,
             "evento": event, "bateria_botao": reading.battery,
             "rssi": RSSI.intValue, "ts": timestamp
-        ], qos: .qos1)
+        ], qos: .qos1, alert: true)
     }
 }
 

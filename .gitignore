@@ -20,3 +20,7 @@ local.properties
 iosApp/*.xcodeproj/
 iosApp/*.xcworkspace/
 DerivedData/
+
+# Cópias de segurança feitas antes de alterações
+*.antes-*
+*.bak*
