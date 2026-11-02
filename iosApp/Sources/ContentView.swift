@@ -58,7 +58,7 @@ struct ContentView: View {
 
                     Text("Pouse o telemóvel na posição de repouso e carregue no botão")
                         .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(TemaMaterial.textoSecundario)
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: .infinity)
                         .padding(.top, 16)
@@ -118,7 +118,7 @@ struct ContentView: View {
 
                     Text(monitor.batteryText.isEmpty ? "🔋 Bateria: -" : "🔋 \(monitor.batteryText)")
                         .font(.system(size: 18))
-                        .foregroundStyle(monitor.batteryText.isEmpty ? Color.primary : corBateria)
+                        .foregroundStyle(monitor.batteryText.isEmpty ? TemaMaterial.textoSecundario : corBateria)
                         .padding(.top, 8)
 
                     // Botão Shelly BLU (Bluetooth): estado + Associar / Esquecer
@@ -153,14 +153,18 @@ struct ContentView: View {
                     }
                     .padding(.top, 6)
 
-                    Text(String(format: "X: %.1f   Y: %.1f   Z: %.1f",
-                                monitor.axisX, monitor.axisY, monitor.axisZ))
+                    Text(monitor.active
+                         ? String(format: "X: %.1f   Y: %.1f   Z: %.1f",
+                                  monitor.axisX, monitor.axisY, monitor.axisZ)
+                         : "X: -   Y: -   Z: -")
                         .font(.system(size: 22).monospacedDigit())
+                        .foregroundStyle(TemaMaterial.textoSecundario)
                         .padding(.top, 16)
 
                     Text(monitor.active ? String(format: "Inclinação: %.0f°", monitor.inclinationNow)
                                         : "Inclinação: -")
                         .font(.system(size: 24))
+                        .foregroundStyle(TemaMaterial.textoSecundario)
                         .padding(.top, 8)
 
                     BarraInclinacao(valor: monitor.inclinationNow)
@@ -169,6 +173,7 @@ struct ContentView: View {
 
                     textoAcelerometro
                         .font(.system(size: 22))
+                        .foregroundStyle(TemaMaterial.textoSecundario)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 16)
                         .padding(.top, 4)
@@ -188,7 +193,7 @@ struct ContentView: View {
             }
             .scrollDismissesKeyboard(.interactively)
         }
-        .background(Color(uiColor: .systemBackground).ignoresSafeArea())
+        .background(TemaMaterial.fundo.ignoresSafeArea())
         .overlay(alignment: .bottom) {
             if !toast.isEmpty {
                 Text(toast)
@@ -261,6 +266,7 @@ struct ContentView: View {
                         Text("Intervalo (ms):")
                     }
                     .font(.system(size: 14))
+                    .foregroundStyle(TemaMaterial.textoSecundario)
                     TextField("100", text: $intervalo)
                         .keyboardType(.numberPad)
                         .focused($campoAtivo, equals: .intervalo)
@@ -357,9 +363,9 @@ struct ContentView: View {
 
     /// "🔘 Shelly: ..." com as barras de sinal coloridas antes do "-44 dBm".
     private var linhaShelly: Text {
-        var estado = monitor.shellyText
+        var estado = monitor.shellyText == "Shelly: sem eventos" ? "Shelly: -" : monitor.shellyText
         let bt = monitor.bluetoothStatus
-        if !bt.isEmpty && bt != "À escuta do botão Shelly" { estado += "\n" + bt }
+        if monitor.active && !bt.isEmpty && bt != "À escuta do botão Shelly" { estado += "\n" + bt }
         let problema = ["ligue", "falta", "erro", "encriptação", "não tem"]
             .contains { estado.lowercased().contains($0) }
         let cor = problema ? vermelho : azulShelly
@@ -427,6 +433,18 @@ private enum TemaMaterial {
     static let textoPrimaria = Color(uiColor: UIColor { t in
         t.userInterfaceStyle == .dark ? .black : .white
     })
+    /// colorSecondary: a SeekBar do Android usa esta cor (turquesa)
+    static let secundaria = Color(uiColor: UIColor { t in
+        t.userInterfaceStyle == .dark ? UIColor(hex: 0x03DAC5) : UIColor(hex: 0x018786)
+    })
+    /// Fundo do tema Material escuro (#121212) ou branco
+    static let fundo = Color(uiColor: UIColor { t in
+        t.userInterfaceStyle == .dark ? UIColor(hex: 0x121212) : .white
+    })
+    /// Cor por omissão das TextView (textColorSecondary): cinzento
+    static let textoSecundario = Color(uiColor: UIColor { t in
+        t.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.70) : UIColor(white: 0, alpha: 0.54)
+    })
 }
 
 /// EditText Material: texto com uma linha por baixo, que fica roxa quando está ativo.
@@ -452,10 +470,10 @@ private struct BarraInclinacao: View {
             let v = min(max(valor, 0), 180)
             let x = g.size.width * v / 180
             ZStack(alignment: .leading) {
-                Capsule().fill(TemaMaterial.primaria.opacity(0.3)).frame(height: 2)
-                Capsule().fill(TemaMaterial.primaria).frame(width: x, height: 2)
-                Circle().fill(TemaMaterial.primaria).frame(width: 14, height: 14)
-                    .offset(x: max(0, min(x - 7, g.size.width - 14)))
+                Capsule().fill(TemaMaterial.textoSecundario.opacity(0.45)).frame(height: 2)
+                Capsule().fill(TemaMaterial.secundaria).frame(width: x, height: 2)
+                Circle().fill(TemaMaterial.secundaria).frame(width: 18, height: 18)
+                    .offset(x: max(0, min(x - 9, g.size.width - 18)))
             }
             .frame(height: 20)
         }
