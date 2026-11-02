@@ -25,6 +25,7 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
     @Published private(set) var shellyText = "Shelly: sem eventos"
     /// Texto do SMS de queda à espera de ser aberto no ecrã (como o botão ALERTA).
     @Published private(set) var fallSMS: String? = nil
+    @Published private(set) var shellySMS: String? = nil
     private var lastFallSMS = Date.distantPast
     @Published private(set) var referenceText = ""
     @Published private(set) var lastEvent = "Sem eventos"
@@ -58,6 +59,7 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
     private var fall = FallRule()
     private var associateUntil: Date?
     private var lastPackets: [String: (Int, Date)] = [:]
+    private var lastShellySMS = Date.distantPast
     private let bthome = CBUUID(string: "FCD2")
 
     // ---- Regras iguais à versão Android ----
@@ -258,6 +260,26 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
 
     /// O ecrã já abriu o SMS de queda.
     func clearFallSMS() { fallSMS = nil }
+    func clearShellySMS() { shellySMS = nil }
+
+    private func prepareShellySMS(_ message: String, status: String) {
+        let contact = (UserDefaults.standard.string(forKey: "contacto") ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !contact.isEmpty else {
+            lastEvent = "Shelly: guarde um número de telemóvel para SMS"
+            return
+        }
+        shellySMS = message
+        lastEvent = status
+        if UIApplication.shared.applicationState != .active {
+            let content = UNMutableNotificationContent()
+            content.title = "Botão Shelly: SMS por confirmar"
+            content.body = "Abra a app e confirme Enviar."
+            content.sound = .default
+            UNUserNotificationCenter.current().add(
+                UNNotificationRequest(identifier: "shellySMS", content: content, trigger: nil))
+        }
+    }
 
     func helpMessage(name: String) -> String {
         var message = "PEDIDO DE AJUDA: \(name)"
@@ -680,6 +702,19 @@ final class MonitorController: NSObject, ObservableObject, CLLocationManagerDele
             "evento": event, "bateria_botao": reading.battery,
             "rssi": RSSI.intValue, "ts": timestamp
         ], qos: .qos1, alert: true)
+        switch reading.button {
+        case 1, 4, 0x80, 0xFE:
+            if now.timeIntervalSince(lastShellySMS) >= 20 {
+                lastShellySMS = now
+                prepareShellySMS(helpMessage(name: name),
+                                 status: "Shelly: pedido de ajuda; confirme Enviar no SMS")
+            }
+        case 2:
+            lastShellySMS = .distantPast
+            prepareShellySMS("Está tudo bem! (cancelado no botão)\n\(name)",
+                             status: "Shelly: confirmação; confirme Enviar no SMS")
+        default: break
+        }
     }
 }
 

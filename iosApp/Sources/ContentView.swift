@@ -6,6 +6,7 @@ import MessageUI
 /// dois botões fixos no topo e o resto numa lista com scroll, pela mesma ordem.
 struct ContentView: View {
     @ObservedObject private var monitor = MonitorController.shared
+    @Environment(\.scenePhase) private var scenePhase
 
     @AppStorage("nome") private var nomeGuardado = "Telemóvel"
     @AppStorage("contacto") private var contactoGuardado = ""
@@ -224,12 +225,35 @@ struct ContentView: View {
             textoSMS = mensagem
             mostrarSMS = true
         }
+        .onReceive(monitor.$shellySMS) { mensagem in
+            showShellySMS(mensagem)
+        }
+        .onChange(of: scenePhase) { phase in
+            if phase == .active { showShellySMS(monitor.shellySMS) }
+        }
         .confirmationDialog("Esquecer botões Shelly?", isPresented: $confirmarEsquecer) {
             Button("Esquecer botões", role: .destructive) { monitor.forgetButtons() }
             Button("Cancelar", role: .cancel) {}
         } message: {
             Text("Os botões deixam de enviar alertas até serem associados novamente.")
         }
+    }
+
+    private func showShellySMS(_ mensagem: String?) {
+        guard scenePhase == .active, let mensagem = mensagem, !mostrarSMS else { return }
+        guard !contactoGuardado.isEmpty else {
+            monitor.clearShellySMS()
+            mostrarToast("Guarde primeiro o número para SMS")
+            return
+        }
+        guard MFMessageComposeViewController.canSendText() else {
+            monitor.clearShellySMS()
+            mostrarToast("Este iPhone não consegue preparar SMS")
+            return
+        }
+        textoSMS = mensagem
+        monitor.clearShellySMS()
+        mostrarSMS = true
     }
 
     // MARK: - Linhas Nome / Intervalo / Telemóvel
